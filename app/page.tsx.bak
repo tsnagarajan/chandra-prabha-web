@@ -65,110 +65,6 @@ function toDMSSafe(deg: number) {
   d = d % 360;
   return { d, m, s };
 }
-
-/* ---- Varga helpers (D1, D2, D3, D7, D9, D10, D12, D30) ---- */
-function signIndex(deg: number) {
-  return Math.floor(norm360(deg) / 30);
-}
-const ODD = (s: number) => (s % 2 === 0); // Aries index 0 -> true (odd sign)
-
-const QUALITY: Array<'movable'|'fixed'|'dual'> = [
-  'movable','fixed','dual','movable','fixed','dual',
-  'movable','fixed','dual','movable','fixed','dual'
-];
-
-function horaSign(s:number, within:number){ // D2
-  const first = within < 15;
-  const odd = ODD(s);
-  if (odd) return first ? 4 : 3;   // odd: 0–15 -> Leo, 15–30 -> Cancer
-  return first ? 3 : 4;            // even: 0–15 -> Cancer, 15–30 -> Leo
-}
-
-function drekkanaSign(s:number, within:number){ // D3
-  const p = Math.floor(within/10); // 0..2
-  const add = [0,4,8][p];
-  return (s + add) % 12;
-}
-
-function saptamsaSign(s:number, within:number){ // D7
-  const p = Math.floor(within/(30/7)); // 0..6
-  const base = ODD(s) ? s : (s+6)%12;  // odd: from sign; even: from 7th
-  return (base + p) % 12;
-}
-
-function navamsaSign(s:number, within:number){ // D9
-  const p = Math.floor(within/(30/9)); // 0..8
-  const q = QUALITY[s];
-  const base = q==='movable' ? s : (q==='fixed' ? (s+8)%12 : (s+4)%12);
-  return (base + p) % 12;
-}
-
-function dasamsaSign(s:number, within:number){ // D10
-  const p = Math.floor(within/3); // 0..9
-  const base = ODD(s) ? s : (s+8)%12; // odd: from sign; even: from 9th
-  return (base + p) % 12;
-}
-
-function dwadasamsaSign(s:number, within:number){ // D12
-  const p = Math.floor(within/2.5); // 0..11
-  return (s + p) % 12;
-}
-
-function trimshamsaSign(s:number, within:number){ // D30 (Parashara)
-  const odd = ODD(s);
-  if (odd){
-    if (within < 5)  return 0;   // Aries
-    if (within < 10) return 10;  // Aquarius
-    if (within < 18) return 8;   // Sagittarius
-    if (within < 25) return 2;   // Gemini
-    return 6;                    // Libra
-  } else {
-    if (within < 5)  return 7;   // Scorpio
-    if (within < 10) return 9;   // Capricorn
-    if (within < 18) return 11;  // Pisces
-    if (within < 25) return 5;   // Virgo
-    return 1;                    // Taurus
-  }
-}
-
-/** Compute Varga placements (sign names only) from D1 degrees */
-function vargaPlacements(positions: Record<string,number>, asc: number){
-  const bodies = ['Ascendant','Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu','Uranus','Neptune','Pluto'];
-  const getDeg = (name:string)=> name==='Ascendant' ? asc : positions[name];
-  return bodies.map(b=>{
-    const deg = getDeg(b);
-    if (!Number.isFinite(deg)) return null;
-    const s = signIndex(deg);
-    const within = norm360(deg) % 30;
-    return {
-      body: b,
-      D1:  SIGNS[s],
-      D2:  SIGNS[horaSign(s, within)],
-      D3:  SIGNS[drekkanaSign(s, within)],
-      D7:  SIGNS[saptamsaSign(s, within)],
-      D9:  SIGNS[navamsaSign(s, within)],
-      D10: SIGNS[dasamsaSign(s, within)],
-      D12: SIGNS[dwadasamsaSign(s, within)],
-      D30: SIGNS[trimshamsaSign(s, within)],
-    };
-  }).filter(Boolean) as Array<{
-    body:string; D1:string; D2:string; D3:string; D7:string; D9:string; D10:string; D12:string; D30:string;
-  }>;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 function fmtDMS(deg: number) {
   const { d, m, s } = toDMSSafe(deg);
   return `${d}° ${m}′ ${s}″`;
@@ -456,74 +352,6 @@ export default function Home() {
 
   const printRef = useRef<HTMLDivElement>(null);
 
-  // Prevent any global click -> print from hijacking our Download button
-useEffect(() => {
-  const handler = (ev: Event) => {
-    const target = ev.target as Element | null;
-    if (!target) return;
-    // only care about clicks inside the export bar
-    if (!target.closest('.export-bar')) return;
-
-    // If the click is on the Download HTML button, do download and stop everything else
-    if (target.closest('#btn-download-html')) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      // @ts-ignore
-      ev.stopImmediatePropagation?.();
-      try { downloadHTML(); } catch (e) { console.error(e); }
-    }
-  };
-  document.addEventListener('click', handler, true);   // capture phase
-  return () => document.removeEventListener('click', handler, true);
-}, []);
-
-
-
-
-  // --- Hard stop: prevent any global click -> print when pressing Download (HTML) ---
-useEffect(() => {
-  function handleCapture(ev: Event) {
-    const t = ev.target as Element | null;
-    if (!t) return;
-    // Only care about clicks coming from inside the export bar
-    const bar = t.closest?.('.export-bar');
-    if (!bar) return;
-
-    // If the click is on (or inside) the Download HTML button, run download and kill the event
-    const onDownload = t.closest?.('#btn-download-html');
-    if (onDownload) {
-      ev.preventDefault();
-      // @ts-ignore
-      ev.stopImmediatePropagation?.();
-      ev.stopPropagation();
-
-      try {
-        // Call your hardened download function
-        // (use whatever name you actually kept: safeDownloadHTML / downloadHTML)
-        safeDownloadHTML && safeDownloadHTML();
-      } catch (e) {
-        console.error('download failed:', e);
-      }
-      return; // nothing else fires
-    }
-  }
-
-  // Capture phase so we run BEFORE any other listeners
-  document.addEventListener('click', handleCapture, true);
-  document.addEventListener('pointerup', handleCapture, true);
-  document.addEventListener('mouseup', handleCapture, true);
-
-  return () => {
-    document.removeEventListener('click', handleCapture, true);
-    document.removeEventListener('pointerup', handleCapture, true);
-    document.removeEventListener('mouseup', handleCapture, true);
-  };
-}, []);
-
-  
-
-
-
 
   function resetAll() {
     setName('');
@@ -780,125 +608,12 @@ useEffect(() => {
   }
   async function exportChartsSVG() { if (!out) return; const d1svg = svgForSouthChart(`Rāśi (D1) — Signs${name ? ` • ${name}` : ''}`, 'sign', out.ascendant, out.positions); const d9svg = svgForSouthChart(`Navāṁśa (D9) — Signs${name ? ` • ${name}` : ''}`, 'sign', out.d9Ascendant, out.d9Positions); const bhsvg = svgForSouthChart(`Bhāva (Houses from Lagna)${name ? ` • ${name}` : ''}`, 'bhava', out.ascendant, out.positions); downloadText('chart_d1.svg', 'image/svg+xml;charset=utf-8', d1svg); downloadText('chart_d9.svg', 'image/svg+xml;charset=utf-8', d9svg); downloadText('chart_bhava.svg', 'image/svg+xml;charset=utf-8', bhsvg); }
   async function exportChartsPNG() { if (!out) return; const d1svg = svgForSouthChart(`Rāśi (D1) — Signs${name ? ` • ${name}` : ''}`, 'sign', out.ascendant, out.positions); const d9svg = svgForSouthChart(`Navāṁśa (D9) — Signs${name ? ` • ${name}` : ''}`, 'sign', out.d9Ascendant, out.d9Positions); const bhsvg = svgForSouthChart(`Bhāva (Houses from Lagna)${name ? ` • ${name}` : ''}`, 'bhava', out.ascendant, out.positions); await svgToPngAndDownload(d1svg, 'chart_d1.png'); await svgToPngAndDownload(d9svg, 'chart_d9.png'); await svgToPngAndDownload(bhsvg, 'chart_bhava.png'); }
-  function handleDownloadHTML() {
-  try {
-    safeDownloadHTML();
-  } catch (err) {
-    console.error('download failed:', err);
-  }
-}
-
-// Hardened download (replaces your old downloadHTML)
-function safeDownloadHTML() {
-  const root = document.getElementById('print-root');
-  if (!root) return;
-
-  // Collect inline styles so offline file looks the same
-  const styles = Array.from(document.querySelectorAll('style'))
-    .map((s) => s.innerHTML)
-    .join('\n');
-
-  const title = `Vedic Astrology Report${name ? ' - ' + name : ''}`;
-  const filename = `report${name ? '_' + name.replace(/\s+/g, '_') : ''}.html`;
-
-  const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>${title}</title>
-  <style>${styles}</style>
-</head>
-<body>
-  <div id="print-root">${root.innerHTML}</div>
-</body>
-</html>`.trim();
-
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-
-  // Create a real <a> and fire only its click (no form submit, no bubbling)
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.rel = 'noopener';
-  a.target = '_self';
-
-  // do not attach to DOM to avoid layout/bubbling quirks
-  a.addEventListener('click', (ev) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-  });
-
-  // Trigger the download on the microtask queue to dodge any shared click handlers
-  setTimeout(() => {
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, 0);
-}
-
-
-
-
-
-  function handleDownloadHTML() {
-  try {
-    console.log('[Download] clicked');
-    downloadHTML();
-  } catch (err) {
-    console.error('downloadHTML failed:', err);
-  }
-}
-
-
-
   function downloadHTML() {
-  const root = document.getElementById('print-root');
-  if (!root) return;
-
-  // Collect inline styles so the file looks identical offline
-  const styles = Array.from(document.querySelectorAll('style'))
-    .map(s => s.innerHTML)
-    .join('\n');
-
-  const title = `Vedic Astrology Report${name ? ' - ' + name : ''}`;
-  const filename = `report${name ? '_' + name.replace(/\s+/g, '_') : ''}.html`;
-
-  const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>${title}</title>
-  <style>${styles}</style>
-</head>
-<body>
-  <div id="print-root">${root.innerHTML}</div>
-</body>
-</html>`.trim();
-
-  // Blob download path
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-
-  // Create an anchor and click it programmatically
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.rel = 'noopener';
-  a.target = '_self'; // keep in same tab to avoid weird browser behaviors
-  document.body.appendChild(a);
-
-  console.log('[Download] starting blob download:', filename);
-  a.click();
-
-  // Cleanup
-  setTimeout(() => {
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, 1000);
-}
-
+    const root = document.getElementById('print-root'); if (!root) return;
+    const styles = Array.from(document.querySelectorAll('style')).map(s => s.innerHTML).join('\n');
+    const html = `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Vedic Astrology Report${name ? ' - ' + name : ''}</title><style>${styles}</style></head><body><div id="print-root">${root.innerHTML}</div></body></html>`.trim();
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `report${name ? '_' + name.replace(/\s+/g,'_') : ''}.html`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  }
   // === Save PDF with per-page header (logo + title) ===
 
 
@@ -1276,51 +991,46 @@ function safeDownloadHTML() {
       />
     </section>
 
-    
-
+    {/* ---------- PAGE 4: Varga — Signs only (D1) ---------- */}
+<section className="page-section">
+  {PRINT_LOGO_EACH_PAGE && (
+    <div className="print-only page-logo">
+      <img src="/logo.png" width={120} height={120} alt="Chandra Prabha — Vedic Astrology"/>
+    </div>
+  )}
 
   
 
 
 
-{/* ---------- PAGE: Varga — Signs only (D1, D2, D3, D7, D9, D10, D12, D30) ---------- */}
+{/* ---------- PAGE 4: Varga — Signs only (D1 & D9) ---------- */}
 <section className="page-section">
   <div className="card avoid-break">
-    <div className="section-title">Varga — Signs only</div>
+    <div className="section-title">Varga — Signs only (D1 & D9)</div>
 
-    <div style={{display:'grid', gridTemplateColumns:'1.3fr repeat(8, 1fr)', gap:8}}>
+    <div style={{display:'grid', gridTemplateColumns:'1.2fr 1.2fr 1.2fr', gap:8}}>
       <div style={{fontWeight:900}}>Body</div>
-      <div style={{fontWeight:900}}>D1</div>
-      <div style={{fontWeight:900}}>D2</div>
-      <div style={{fontWeight:900}}>D3</div>
-      <div style={{fontWeight:900}}>D7</div>
-      <div style={{fontWeight:900}}>D9</div>
-      <div style={{fontWeight:900}}>D10</div>
-      <div style={{fontWeight:900}}>D12</div>
-      <div style={{fontWeight:900}}>D30</div>
+      <div style={{fontWeight:900}}>D1 Sign</div>
+      <div style={{fontWeight:900}}>D9 Sign</div>
 
-      {vargaPlacements(out.positions, out.ascendant).map((row, i)=>(
-        <React.Fragment key={`varga-${i}`}>
-          <div>{row.body}</div>
-          <div>{row.D1}</div>
-          <div>{row.D2}</div>
-          <div>{row.D3}</div>
-          <div>{row.D7}</div>
-          <div>{row.D9}</div>
-          <div>{row.D10}</div>
-          <div>{row.D12}</div>
-          <div>{row.D30}</div>
-        </React.Fragment>
-      ))}
-    </div>
-
-    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
-      Signs only are computed from D1 longitudes using standard varga rules (no degrees shown).
+      {['Ascendant','Sun','Moon','Mercury','Venus','Mars','Jupiter','Saturn','Rahu','Ketu'].map((body) => {
+        const d1 = body === 'Ascendant' ? out.ascendant : out.positions?.[body];
+        const d9 = body === 'Ascendant' ? out.d9Ascendant : out.d9Positions?.[body];
+        const signName = (deg?: number) =>
+          Number.isFinite(deg as number)
+            ? SIGNS[Math.floor(norm360(deg as number)/30)]
+            : '—';
+        return (
+          <React.Fragment key={`vs-simple-${body}`}>
+            <div>{body}</div>
+            <div>{signName(d1)}</div>
+            <div>{signName(d9)}</div>
+          </React.Fragment>
+        );
+      })}
     </div>
   </div>
 </section>
-
-
 
 
 
@@ -1410,42 +1120,26 @@ function safeDownloadHTML() {
               <div>{fmtISO(d.endISO, out.timezone)}</div>
             </React.Fragment>
           ))}
-        </div>
-        </div>
-
-        </section>
-
-          {/* END: printed sections */}
+        
       </div>
-    )}
-    {/* end conditional for report */}
+    </section>
+</div>
+)}
 
+</div>
 
-    {/* Floating export toolbar (screen only) */}
-    {out && (
-      <div className="export-bar">
-        <button
-          id="btn-download-html"
-          type="button"
-          onClick={downloadHTML}
-          title="Download single-file HTML"
-        >
-          Download
-        </button>
-        <button
-          type="button"
-          onClick={() => window.print()}
-          title="Print (Save as PDF)"
-        >
-          Print
-        </button>
-      </div>
-    )}
+{out && (
+  <div className="export-bar">
+    <button onClick={() => window.print()} title="Save as PDF or print">
+      Download / Print
+    </button>
+  </div>
+)}
 
-  </div> {/* end outer content wrapper */}
 </main>
 );
 }
+
 
 
 

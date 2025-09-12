@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+
+# Stage 1: deps (build native modules like swisseph)
+FROM node:20-bullseye AS deps
+WORKDIR /app
+COPY package*.json ./
+# toolchain for node-gyp
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+# prefer ci, fallback to install; ensure native build for swisseph
+RUN npm ci --ignore-scripts=false --build-from-source=swisseph || \
+    npm install --ignore-scripts=false --build-from-source=swisseph
+
+# Stage 2: build Next
+FROM node:20-bullseye AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+# Stage 3: runtime
+FROM node:20-bullseye AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=builder /app ./
+EXPOSE 3000
+CMD ["npm","start","-p","3000"]
